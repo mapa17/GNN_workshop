@@ -144,10 +144,10 @@ def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
     log.info(f'Loaded {len(datasets)} datasets ...')
     return datasets
 
-def _predict_edge(ctx, comm: Path, employees: Path):
+def _train_edge_model(ctx, comm: Path, employees: Path):
     raise NotImplementedError()
 
-def _predict_node(ctx, comm: Path, employees: Path):
+def _train_node_model(ctx, comm: Path, employees: Path):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
@@ -207,6 +207,34 @@ def agora(ctx, verbose, logfile):
 # Input handlers
 ################################################################################
 
+@agora.group('train')
+@click.pass_context
+def train(ctx):
+    pass
+
+@train.command()
+@click.pass_context
+@click.argument('communication', type=click.Path(exists=True))
+@click.argument('employees', type=click.Path(exists=True))
+def node(ctx, communication, employees):
+
+    # Commit changes
+    _train_node_model(ctx,
+        Path(communication).absolute(),
+        Path(employees).absolute())
+
+@train.command()
+@click.pass_context
+@click.argument('communication', type=click.Path(exists=True))
+@click.argument('employees', type=click.Path(exists=True))
+def edge(ctx, communication, employees):
+
+    # Commit changes
+    _train_edge_model(ctx,
+        Path(communication).absolute(),
+        Path(employees).absolute())
+
+
 @agora.group('predict')
 @click.pass_context
 def predict(ctx):
@@ -217,6 +245,7 @@ def predict(ctx):
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
 def node(ctx, communication, employees):
+    raise NotImplementedError
 
     # Commit changes
     _predict_node(ctx,
@@ -228,6 +257,7 @@ def node(ctx, communication, employees):
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
 def edge(ctx, communication, employees):
+    raise NotImplementedError
 
     # Commit changes
     _predict_edge(ctx,
