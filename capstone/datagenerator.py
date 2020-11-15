@@ -48,7 +48,7 @@ class Communication:
     sender: int
     recver: int
     channel: str
-    interaections: int
+    interactions: int
     date: str
 
 def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict]:
