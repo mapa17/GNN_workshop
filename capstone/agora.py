@@ -37,10 +37,15 @@ def _generate_employee_tensor(df: DataFrame) -> Tuple[Tensor, pd.core.arrays.cat
 
     return node_features, df['department'].cat
 
-def _generate_comm_graph(df: DataFrame, node_features: Tensor, date: str) -> torch_geometric.data.data.Data:
+def _generate_comm_graph(df: DataFrame, node_features: Tensor, date: str, force_undirected: bool = False) -> torch_geometric.data.data.Data:
     log.debug(f"Generate graph for date {date} of shape {df.shape}")
 
     edge_index = torch.tensor([df['sender'].values, df['recver'].values], dtype=torch.long)
+    # Flip edge direction
+    if force_undirected:
+        log.debug('Forcing undirected graph by having a reverse edge for each normal edge.')
+        rev_edge_index = torch.stack([edge_index[1], edge_index[0]])
+        edge_index = torch.cat([edge_index, rev_edge_index], dim=1)
     edge_features = torch.tensor(df[['slack', 'email', 'zoom']].values, dtype=torch.float)
 
     data = Data(x=node_features, edge_index=edge_index, edge_attr=edge_features)
