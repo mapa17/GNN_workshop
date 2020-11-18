@@ -1,3 +1,5 @@
+from typing import Tuple, Dict, List
+
 import numpy as np
 
 import torch
@@ -43,7 +45,7 @@ class NodeModel(torch.nn.Module):
         # Note: Negative log likelihood loss expects a log probability
         return F.log_softmax(x, dim=1) 
     
-    def train_one_epoch(self):
+    def train_one_epoch(self, labels: List[int]):
         # Set the model.training attribute to True
         self.train() 
 
@@ -53,7 +55,7 @@ class NodeModel(torch.nn.Module):
         # Get the output of the network. The output is a log probability of each
         prediction_log_softmax = self(self.dataset) 
 
-        labels = self.y # Labels of each node
+        labels = torch.tensor(labels, dtype=torch.long) # Labels of each node
 
         # Use only the nodes specified by the train_mask to compute the loss.
         nll_loss = F.nll_loss(prediction_log_softmax[self.train_mask], labels[self.train_mask])

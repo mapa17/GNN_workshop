@@ -7,6 +7,7 @@ from datetime import date
 from datetime import timedelta
 from pathlib import Path
 
+import click
 import pandas as pd
 import numpy as np
 from scipy.stats import poisson
@@ -41,6 +42,7 @@ class Employee:
     intercomm: float
     friendscomm: float
     friends: List[int]
+    hasCommunicationIssues: bool
 
 @dataclass
 class Communication:
@@ -62,7 +64,9 @@ def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict
     # Number of employees per department
     stats['department_per_employee'] = []
     _ = [stats['department_per_employee'].extend([dep.name,] * cnt) for cnt, dep in zip(stats['employees_per_department'], cfg['departments'].values())]
-    
+
+    # Select a number of other employees as friends (frequent communication patners)
+    # Let it be a normal distribution around 5, with a standard deviation of 2 and a minimal value of 1
     total_employee_cnt = sum(stats['employees_per_department'])
     employee_friends = [np.random.choice(range(total_employee_cnt), size=max(1, int(nfriends))) for nfriends in np.round(np.random.normal(loc=5, scale=2, size=total_employee_cnt), decimals=0)]
         
@@ -72,13 +76,15 @@ def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict
     # min_comm_behavior = 0.1
     stats['base_comm_behavior'] = [max(1, int(x)) for x in np.random.normal(loc=10, scale=3, size=total_employee_cnt)]
 
-    # A dictionary of employee_idx per deparment (employeeidx starts at 1000)
+    # A dictionary of employee_idx per department (employeeidx starts at 1000)
     stats['departmentlist'] = {dep_name: [] for dep_name in cfg['departments'].keys()}
+
+    stats['hasCommunicationIssues'] = np.random.choice([True, False], p=[0.1, 0.9], size=total_employee_cnt)
 
     # Build a dictionary of employees, indexed by their idx
     employees = {}
-    for i, (department, base_comm, remote, fulltime, friends) in enumerate(
-        zip(stats['department_per_employee'], stats['base_comm_behavior'], stats['remote'], stats['fulltime'], employee_friends)):
+    for i, (department, base_comm, remote, fulltime, friends, hasCI) in enumerate(
+        zip(stats['department_per_employee'], stats['base_comm_behavior'], stats['remote'], stats['fulltime'], employee_friends, stats['hasCommunicationIssues'])):
         
         # employee idx starts
         idx=i
@@ -95,9 +101,14 @@ def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict
         else:
             remotetime = 1.0
 
+        # define how many different interactions (i.e. node degree) a employee has per day
         communicative = int(base_comm*worktime*remotetime)
 
-        # What is this employees number of media communicaiton events base line
+        # Simple perturbation. This employee will have very few interactions
+        if hasCI:
+            communicative = 3
+
+        # define the intensity of those interactions per channel
         # media.freq * employee_communication_tendency * media_bias
         channel_comm_freq = [cfg['channels'][m].freq*media_bias
             for m, media_bias in zip(cfg['channels'], np.random.uniform(low=0.5, high=1.5, size=len(cfg['channels'])))]
@@ -120,13 +131,14 @@ def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict
         intracomm = intracomm,
         intercomm = intercomm,
         friendscomm = friendscomm,
-        friends=friends)
+        friends=friends,
+        hasCommunicationIssues=hasCI)
 
         stats['departmentlist'][department].append(idx)
     
     return stats['departmentlist'], employees
 
-def _getIdx(employee: Employee, groups: List[int], deparmentlist: Dict[str, int]) -> List[int]:
+def _getIdx(employee: Employee, groups: List[int], departmentlist: Dict[str, int]) -> List[int]:
     """
     For given employee and groups (department, other department, friends) return matching employee idx
     """
@@ -137,7 +149,7 @@ def _getIdx(employee: Employee, groups: List[int], deparmentlist: Dict[str, int]
     for group in groups:
         if group == 0:
             # same department
-            idx = np.random.choice(deparmentlist[employee.department])
+            idx = np.random.choice(departmentlist[employee.department])
         elif group == 1:
             # Other departments
             idx = np.random.choice(all_employees)
@@ -151,7 +163,7 @@ def _getIdx(employee: Employee, groups: List[int], deparmentlist: Dict[str, int]
     return idxs
 
 
-def get_communication_for_employee(employee: Employee, date: str, deparmentlist: Dict[str, int], channels: List[str]) -> List[Communication]:
+def get_communication_for_employee(employee: Employee, date: str, departmentlist: Dict[str, int], channels: List[str]) -> List[Communication]:
     """
     For given employee create all communication events for given day
     """
@@ -169,7 +181,7 @@ def get_communication_for_employee(employee: Employee, date: str, deparmentlist:
                 sender=employee.idx,
                 recver=dest,
                 channel=channel,
-                interaections=intensity,
+                interactions=intensity,
                 date=date
             )
         )
@@ -184,7 +196,7 @@ def store_results(path: str, comms: List[Communication], employees: List[Employe
     employeepath = Path(path).joinpath(prefix+'employees.csv')
     commDF = pd.DataFrame(comms)
     employeeDF = pd.DataFrame(employees)
-    employeeDF = employeeDF[['idx', 'department', 'remote', 'fulltime']]
+    employeeDF = employeeDF[['idx', 'department', 'remote', 'fulltime', 'hasCommunicationIssues']]
 
     print(f'Writing communication data to {commpath} ...')
     commDF.to_csv(commpath, index=False)
@@ -193,44 +205,58 @@ def store_results(path: str, comms: List[Communication], employees: List[Employe
     employeeDF.to_csv(employeepath, index=False)
 
 
-# %%
-cfg = {}
-# Number of nodes
-cfg['employees'] = 100
 
-cfg['departments'] = {
-    'Business': Department("Business", 0.1, 0.3, 0.3, 0.3),
-    'Administration': Department("Administration", 0.1, 0.3, 0.3, 0.3),
-    'Sales': Department("Sales", 0.1, 0.4, 0.3, 0.3),
-    'Marketing': Department("Marketing", 0.1, 0.5, 0.3, 0.2),
-    'Research': Department("Research", 0.2, 0.6, 0.2, 0.2),
-    'DevFrontend': Department("DevFrontend", 0.2, 0.5, 0.3, 0.2),
-    'DevBackend': Department("DevBackend", 0.2, 0.5, 0.3, 0.2),
-}
+def _generate_dataset(cfg, output_path, seed, nDays=10):
+    # %%
+    departmentlist, employees = generate_behavior(cfg, seed=seed)
 
-cfg['channels'] = {
-    'slack': Channel('slack', 10),
-    'zoom': Channel('zoom', 2),
-    'email': Channel('email', 3),
-}
-
-cfg['ratio_of_fulltime_employees'] = 0.7
-cfg['ratio_of_remote_employees'] = 0.3
+    # %%
+    np.random.seed(seed)
+    comms = []
+    for day in [date(2020, 1, 1) + timedelta(days=d) for d in range(nDays)]:
+        print(f'Calculate for date {day} ... ')
+        _ = [comms.extend(get_communication_for_employee(employee, day.isoformat(), departmentlist, list(cfg['channels'].keys()))) for employee in employees.values()]
+    print(f'Produced {len(comms)} communication entries ...')
+    
+    # %%
+    store_results(output_path.parent, comms, employees.values(), prefix=output_path.name)
 
 
-# %%
-departmentlist, employees = generate_behavior(cfg, seed=42)
+@click.command()
+@click.argument('N', type=click.INT)
+@click.argument('outputprefix', type=click.Path(exists=False))
+@click.option('--seed', default=42, help='Seed value')
+@click.option('--days', default=10, help='Number of days to simulate')
+def generate(n, outputprefix, seed, days):
+    # %%
+    cfg = {}
+    # Number of nodes
+    cfg['employees'] = n 
 
+    cfg['departments'] = {
+        'Business': Department("Business", 0.1, 0.3, 0.3, 0.3),
+        'Administration': Department("Administration", 0.1, 0.3, 0.3, 0.3),
+        'Sales': Department("Sales", 0.1, 0.4, 0.3, 0.3),
+        'Marketing': Department("Marketing", 0.1, 0.5, 0.3, 0.2),
+        'Research': Department("Research", 0.2, 0.6, 0.2, 0.2),
+        'DevFrontend': Department("DevFrontend", 0.2, 0.5, 0.3, 0.2),
+        'DevBackend': Department("DevBackend", 0.2, 0.5, 0.3, 0.2),
+    }
 
-# %%
-comms = []
-for day in [date(2020, 1, 1) + timedelta(days=d) for d in range(10)]:
-    print(f'Calculate for date {day} ... ')
-    _ = [comms.extend(get_communication_for_employee(employee, day.isoformat(), departmentlist, list(cfg['channels'].keys()))) for employee in employees.values()]
-print(f'Produced {len(comms)} communication entries ...')
+    cfg['channels'] = {
+        'slack': Channel('slack', 10),
+        'zoom': Channel('zoom', 2),
+        'email': Channel('email', 3),
+    }
 
+    cfg['ratio_of_fulltime_employees'] = 0.7
+    cfg['ratio_of_remote_employees'] = 0.3
 
-# %%
-store_results('./generated', comms, employees.values(), prefix=f"dataset_{str(cfg['employees'])}_")
+    p = Path(outputprefix).absolute()
+    _generate_dataset(cfg, p, seed, nDays=days)
+    pass
 
+################################################################################
 
+if __name__ == '__main__':
+    generate()

@@ -52,7 +52,6 @@ def _generate_comm_graph(df: DataFrame, node_features: Tensor, date: str, force_
     return data
 
 def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
-
     log.info(f'Loading employee table {employees.shape}')
     node_features, department_encoding = _generate_employee_tensor(employees)
 
@@ -82,14 +81,16 @@ def _train_node_model(ctx, comm: Path, employees: Path):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
-    datasets = _load_data(comm_df, employees_df) 
+    labels = employees_df['hasCommunicationIssues'].astype(int).values
+
+    datasets = _load_data(comm_df, employees_df.drop(columns='hasCommunicationIssues'))
 
     data = datasets[list(datasets.keys())[0]]
     # Create a model for the Cora dataset
     model = NodeModel(data, K=1)
 
     for epoch in range(1, 10):
-        model.train_one_epoch()
+        model.train_one_epoch(labels)
         fmt = 'Epoch: {:03d}, Train: {:.4f}, Val: {:.4f}'
         log.info(fmt.format(epoch, *(model.test())))
 
@@ -120,7 +121,7 @@ def getLogger(module_name, filename, stdout=None):
 @click.group()
 @click.version_option(__version__)
 @click.option('-v', '--verbose', count=True, show_default=True)
-@click.option('-l', '--logfile', default=f'log.log', show_default=True)
+@click.option('-l', '--logfile', default=f'agora.log', show_default=True)
 @click.pass_context
 def agora(ctx, verbose, logfile):
     global log
