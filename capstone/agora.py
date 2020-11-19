@@ -23,6 +23,7 @@ __version__ = 0.0
 log = None
 
 from node_model import NodeModel
+from edge_model import EdgeModel
 
 ################################################################################
 # GNN code 
@@ -75,7 +76,24 @@ def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
     return datasets
 
 def _train_edge_model(ctx, comm: Path, employees: Path):
-    raise NotImplementedError()
+    # Convert csv input data into torch_geometric.data.Data
+    comm_df = pd.read_csv(comm)
+    employees_df = pd.read_csv(employees)
+    labels = employees_df['hasCommunicationIssues'].astype(int).values
+
+    datasets = _load_data(comm_df, employees_df.drop(columns='hasCommunicationIssues'))
+
+    data = datasets[list(datasets.keys())[0]]
+    # Create a model for the Cora dataset
+    model = EdgeModel(data)
+
+    for epoch in range(1, 10):
+        trn_loss, val_loss = model.train_one_epoch()
+        log.info(f'Epoch: {epoch:03d}, Train: {trn_loss:.4f}, Val: {val_loss:.4f}')
+
+    acc_val, pred_val = model.test()
+    print(f'test prediction: {pred_val}')
+
 
 def _train_node_model(ctx, comm: Path, employees: Path):
     # Convert csv input data into torch_geometric.data.Data
@@ -87,7 +105,7 @@ def _train_node_model(ctx, comm: Path, employees: Path):
 
     data = datasets[list(datasets.keys())[0]]
     # Create a model for the Cora dataset
-    model = NodeModel(data, K=1)
+    model = NodeModel(data)
 
     for epoch in range(1, 10):
         model.train_one_epoch(labels)
