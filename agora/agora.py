@@ -148,6 +148,30 @@ def _predict_node(model_ckp: Path, comm: Path, employees: Path, output_path: Pat
     log.info(f'Writing prediction to {oPath} ...')
     employees_df.to_csv(oPath, index=False)
 
+
+def _basemodel(comm: Path, employees: Path, output_path: Path, output_prefix: str = '', day: int = 1):
+    # Convert csv input data into torch_geometric.data.Data
+    comm_df = pd.read_csv(comm)
+    employees_df = pd.read_csv(employees)
+
+    dataset_per_day = _load_data(comm_df, employees_df)
+    date = list(dataset_per_day.keys())[day]
+    data = comm_df.query('date == @date')
+
+    # Identify employees who's total interactions are very low compared to all
+
+    total_interactions = data.groupby('sender')['interactions'].sum()
+    # Use the second bin of a fixed histogram (5 bins) as the threshold
+    threshold = np.histogram(total_interactions, bins=5)[1][1]
+    pred = total_interactions < threshold
+
+    employees_df.loc[pred.index]['hasCommunicationIssues'] = pred
+
+    oPath = output_path.joinpath(output_prefix + 'prediction.csv')
+    log.info(f'Writing prediction to {oPath} ...')
+    employees_df.to_csv(oPath, index=False)
+
+
 ################################################################################
 # Auxillary functions
 ################################################################################
@@ -246,6 +270,23 @@ def node(ctx, model_ckp, communication, employees, day, output, prefix):
     # Commit changes
     _predict_node(
         Path(model_ckp).absolute(),
+        Path(communication).absolute(),
+        Path(employees).absolute(),
+        output_path=Path(output).absolute(),
+        output_prefix=prefix,
+        day=day)
+
+@predict.command()
+@click.pass_context
+@click.argument('communication', type=click.Path(exists=True))
+@click.argument('employees', type=click.Path(exists=True))
+@click.option('-d','--day', type=int, default=1, help='What day to use prediction')
+@click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store prediction')
+@click.option('-p','--prefix', type=str, default='', help='Prefix used when storing result')
+def basemodel(ctx, communication, employees, day, output, prefix):
+
+    # Commit changes
+    _basemodel(
         Path(communication).absolute(),
         Path(employees).absolute(),
         output_path=Path(output).absolute(),
