@@ -99,7 +99,7 @@ def _train_edge_model(ctx, comm: Path, employees: Path):
     print(f'test prediction: {pred_val}')
 
 
-def _train_node_model(ctx, comm: Path, employees: Path, epochs: int):
+def _train_node_model(ctx, comm: Path, employees: Path, epochs: int, output_path: str = '.', model_prefix: str = ''):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
@@ -122,7 +122,12 @@ def _train_node_model(ctx, comm: Path, employees: Path, epochs: int):
     trn_acc, val_acc = model.test(gData)
     log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
 
-    return model
+    # Store model
+    oPath = Path(output_path).joinpath(model_prefix+'model.pkl')
+    log.info(f'Saving trained model to {oPath} ...')
+    torch.save({
+        'node_model': model.state_dict(),
+    }, oPath)
 
 ################################################################################
 # Auxillary functions
@@ -178,14 +183,18 @@ def train(ctx):
 @click.pass_context
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
-@click.option('-e','--epochs', type=int, default=10, help='Number of epochs to train model on')
-def node(ctx, communication, employees, epochs):
+@click.option('-e','--epochs', type=int, default=10, help='Number of epochs to train model')
+@click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store trained model')
+@click.option('-p','--prefix', type=str, default='', help='Prefix used when storing the pickled model')
+def node(ctx, communication, employees, epochs, output, prefix):
 
     # Commit changes
     _train_node_model(ctx,
         Path(communication).absolute(),
         Path(employees).absolute(),
-        epochs)
+        epochs,
+        output_path=output,
+        model_prefix=prefix)
 
 @train.command()
 @click.pass_context
