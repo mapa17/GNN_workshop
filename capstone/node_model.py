@@ -1,5 +1,4 @@
-from typing import Tuple, Dict, List
-
+from typing import Tuple, Optional, Dict, List
 import numpy as np
 
 import torch
@@ -11,41 +10,31 @@ from torch_geometric.data import Data
 from torch_geometric.nn import SGConv
 import torch_geometric.transforms as T
 
+from graphdataset import GraphDataset
+
 class NodeModel(torch.nn.Module):
-    def __init__(self, data, K=1):
+    def __init__(self, num_features, nClasses, K=1):
         super().__init__()
-
-        self.dataset = data
-        # Until we have not target class, select 10% random positive nodes
-        self.y = torch.tensor(
-                np.random.choice([0, 1], p=[0.9, 0.1], size=data.x.shape[0]),
-                dtype=torch.long)
-
-        self.train_mask = np.random.choice([True, False], p=[0.8, 0.2], replace=True, size=data.x.shape[0])
-        self.validation_mask = np.invert(self.train_mask)
-
-        # Probability for node beeing normal/abnormal
-        num_classes = 2 
 
         # Create a Simple convolutional layer with K neighbourhood 
         # "averaging" steps
-        self.conv = SGConv(in_channels=data.num_features,
-                            out_channels=num_classes, 
+        self.conv = SGConv(in_channels=num_features,
+                            out_channels=nClasses, 
                            K=K, cached=True)
         
         optimizer = torch.optim.Adam(self.parameters(), lr=0.2)
         optimizer.zero_grad() 
         self.optimizer = optimizer
 
-    def forward(self, data):
+    def forward(self, data: GraphDataset):
         # Apply convolution to node features
-        x = self.conv(data.x, data.edge_index)
+        x = self.conv(data.nodes, data.edges)
 
         # Compute log softmax.
         # Note: Negative log likelihood loss expects a log probability
         return F.log_softmax(x, dim=1) 
     
-    def train_one_epoch(self, labels: List[int]):
+    def train_one_epoch(self, data: GraphDataset):
         # Set the model.training attribute to True
         self.train() 
 
@@ -53,12 +42,10 @@ class NodeModel(torch.nn.Module):
         self.optimizer.zero_grad() 
 
         # Get the output of the network. The output is a log probability of each
-        prediction_log_softmax = self(self.dataset) 
-
-        labels = torch.tensor(labels, dtype=torch.long) # Labels of each node
+        prediction_log_softmax = self(data) 
 
         # Use only the nodes specified by the train_mask to compute the loss.
-        nll_loss = F.nll_loss(prediction_log_softmax[self.train_mask], labels[self.train_mask])
+        nll_loss = F.nll_loss(prediction_log_softmax[data.trn_mask], data.labels[data.trn_mask])
         
         #Computes the gradients of all model parameters used to compute the nll_loss
         #Note: These can be listed by looking at model.parameters()
@@ -68,22 +55,28 @@ class NodeModel(torch.nn.Module):
         # and updates the parameters with the goal of minimizing the loss.
         self.optimizer.step()
 
+        trn_loss = float(nll_loss.detach())
+        with torch.no_grad():
+            val_loss = float(F.nll_loss(prediction_log_softmax[data.val_mask], data.labels[data.val_mask]))
+        
+        return trn_loss, val_loss
 
-    def compute_accuracy(self, mask):
+
+
+    def compute_accuracy(self, data: GraphDataset, mask):
         # Set the model.training attribute to False
         self.eval()
 
-        logprob = self(self.dataset)
+        logprob = self(data)
         _, y_pred = logprob[mask].max(dim=1)
-        y_true=self.y[mask]
-        acc = y_pred.eq(y_true).sum()/ mask.sum()
+        y_true=data.labels[mask]
+        acc = y_pred.eq(y_true).sum() / mask.sum()
 
         return acc.item()
     
     @torch.no_grad() # Decorator to deactivate autograd functionality  
-    def test(self):
-        acc_train = self.compute_accuracy(self.train_mask)
-        acc_val = self.compute_accuracy(self.validation_mask)
-
+    def test(self, data: GraphDataset):
+        acc_train = self.compute_accuracy(data, data.trn_mask)
+        acc_val = self.compute_accuracy(data, data.val_mask)
         return acc_train, acc_val
 

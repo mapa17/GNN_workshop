@@ -24,6 +24,7 @@ log = None
 
 from node_model import NodeModel
 from edge_model import EdgeModel
+from graphdataset import GraphDataset
 
 ################################################################################
 # GNN code 
@@ -53,6 +54,9 @@ def _generate_comm_graph(df: DataFrame, node_features: Tensor, date: str, force_
     return data
 
 def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
+    """
+    Load communication and employee data, returning a separate tensor for each day
+    """
     log.info(f'Loading employee table {employees.shape}')
     node_features, department_encoding = _generate_employee_tensor(employees)
 
@@ -95,22 +99,28 @@ def _train_edge_model(ctx, comm: Path, employees: Path):
     print(f'test prediction: {pred_val}')
 
 
-def _train_node_model(ctx, comm: Path, employees: Path):
+def _train_node_model(ctx, comm: Path, employees: Path, epochs: int):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
     labels = employees_df['hasCommunicationIssues'].astype(int).values
 
-    datasets = _load_data(comm_df, employees_df.drop(columns='hasCommunicationIssues'))
+    dataset_per_day = _load_data(comm_df, employees_df.drop(columns='hasCommunicationIssues'))
 
-    data = datasets[list(datasets.keys())[0]]
+    # Only use first day
+    raw_data = dataset_per_day[list(dataset_per_day.keys())[0]]
+
+    gData = GraphDataset(raw_data, training=True, labels=labels)
+
     # Create a model for the Cora dataset
-    model = NodeModel(data)
+    model = NodeModel(gData.num_features, nClasses=2)
 
-    for epoch in range(1, 10):
-        model.train_one_epoch(labels)
-        fmt = 'Epoch: {:03d}, Train: {:.4f}, Val: {:.4f}'
-        log.info(fmt.format(epoch, *(model.test())))
+    for epoch in range(epochs):
+        trn_loss, val_loss = model.train_one_epoch(gData)
+        log.info(f'Epoch: {epoch:03d}, Training Loss: {trn_loss:0.3f}, Validation Loss: {val_loss:0.3f}')
+       
+    trn_acc, val_acc = model.test(gData)
+    log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
 
 ################################################################################
 # Auxillary functions
@@ -166,12 +176,14 @@ def train(ctx):
 @click.pass_context
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
-def node(ctx, communication, employees):
+@click.option('-e','--epochs', type=int, default=10, help='Number of epochs to train model on')
+def node(ctx, communication, employees, epochs):
 
     # Commit changes
     _train_node_model(ctx,
         Path(communication).absolute(),
-        Path(employees).absolute())
+        Path(employees).absolute(),
+        epochs)
 
 @train.command()
 @click.pass_context
