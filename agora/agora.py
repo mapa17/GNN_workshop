@@ -17,6 +17,7 @@ from torch_geometric.data import Data
 from torch_geometric.nn import SGConv
 import torch_geometric.transforms as T
 
+from sklearn.metrics import classification_report
 from pudb import set_trace as st
 
 __version__ = "Alpha 0.5"
@@ -153,7 +154,6 @@ def _basemodel(comm: Path, employees: Path, output_path: Path, output_prefix: st
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
-
     dataset_per_day = _load_data(comm_df, employees_df)
     date = list(dataset_per_day.keys())[day]
     data = comm_df.query('date == @date')
@@ -165,12 +165,27 @@ def _basemodel(comm: Path, employees: Path, output_path: Path, output_prefix: st
     threshold = np.histogram(total_interactions, bins=5)[1][1]
     pred = total_interactions < threshold
 
-    employees_df.loc[pred.index]['hasCommunicationIssues'] = pred
+    # Join result to employee dataframe
+    pred.name = 'hasCommunicationIssues'
+    pred = pred.reset_index()
+    if 'hasCommunicationIssues' in employees_df:
+        employees_df = employees_df.drop(columns=['hasCommunicationIssues'])
+    result = pd.merge(left=employees_df, right=pred, left_on='idx', right_on='sender', how='outer')
+    result = result.drop(columns=['sender'])
+    # If there is no communication data for an employee, make sure we mark them
+    result = result.fillna('True')
 
     oPath = output_path.joinpath(output_prefix + 'prediction.csv')
     log.info(f'Writing prediction to {oPath} ...')
-    employees_df.to_csv(oPath, index=False)
+    result.to_csv(oPath, index=False)
 
+def test_predictions(truelabel, predictions):
+    labels = pd.read_csv(truelabel).set_index('idx')['hasCommunicationIssues']
+    preds = [pd.read_csv(prediction).set_index('idx')['hasCommunicationIssues'] for prediction in predictions]
+
+    for prediction, filename in zip(preds, predictions):
+        print(f'Prediction: {filename}\n\
+        {classification_report(labels, prediction)}')
 
 ################################################################################
 # Auxillary functions
@@ -256,7 +271,6 @@ def edge(ctx, communication, employees):
 def predict(ctx):
     pass
 
-
 @predict.command()
 @click.pass_context
 @click.argument('model_ckp', type=click.Path(exists=True))
@@ -305,6 +319,19 @@ def edge(ctx, communication, employees):
     _predict_edge(ctx,
         Path(communication).absolute(),
         Path(employees).absolute())
+
+@agora.group('test')
+@click.pass_context
+def test(ctx):
+    pass
+
+@test.command()
+@click.pass_context
+@click.argument('truelabel', type=click.Path(exists=True))
+@click.argument('predictions', type=click.Path(exists=True), nargs=-1)
+def node(ctx, truelabel, predictions):
+    test_predictions(truelabel, predictions)
+
 
 ################################################################################
 
