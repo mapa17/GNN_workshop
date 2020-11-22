@@ -1,4 +1,5 @@
 from typing import Tuple, Optional, Dict, List
+from pathlib import Path
 import numpy as np
 
 import torch
@@ -15,6 +16,10 @@ from graphdataset import GraphDataset
 class NodeModel(torch.nn.Module):
     def __init__(self, num_features, nClasses, K=1):
         super().__init__()
+
+        self.num_features = num_features
+        self.nClasses = nClasses
+        self.K = K
 
         # Create a Simple convolutional layer with K neighbourhood 
         # "averaging" steps
@@ -61,8 +66,6 @@ class NodeModel(torch.nn.Module):
         
         return trn_loss, val_loss
 
-
-
     def compute_accuracy(self, data: GraphDataset, mask):
         # Set the model.training attribute to False
         self.eval()
@@ -73,10 +76,48 @@ class NodeModel(torch.nn.Module):
         acc = y_pred.eq(y_true).sum() / mask.sum()
 
         return acc.item()
+
+    @torch.no_grad()
+    def predict(self, data: GraphDataset):
+        self.eval()
+        logprob = self(data)
+        pred_value, pred_class = logprob.max(dim=1)
+        return pred_class
+ 
     
     @torch.no_grad() # Decorator to deactivate autograd functionality  
     def test(self, data: GraphDataset):
         acc_train = self.compute_accuracy(data, data.trn_mask)
         acc_val = self.compute_accuracy(data, data.val_mask)
         return acc_train, acc_val
+
+
+    @torch.no_grad()
+    def save(self, path: Path):
+        torch.save({'node_model_kwargs': {'num_features': self.num_features,
+                'nClasses': self.nClasses,
+                'K': self.K,
+                },
+            'node_model': self.state_dict(),
+            'node_optimizer': self.optimizer.state_dict(),
+        }, path)
+
+    @classmethod
+    @torch.no_grad()
+    def load(cls, path: Path):
+        """
+        Create a new model, and load its state from the provided path
+        """
+        ckp = torch.load(path)
+        model_kwargs = ckp['node_model_kwargs']
+        model_state = ckp['node_model']
+        optimizer_state = ckp['node_optimizer']
+
+        model = cls(**model_kwargs)
+        model.load_state_dict(model_state)
+        model.optimizer.load_state_dict(optimizer_state)
+    
+        return model
+    
+
 

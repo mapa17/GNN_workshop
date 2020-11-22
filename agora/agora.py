@@ -79,7 +79,7 @@ def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
     log.info(f'Loaded {len(datasets)} datasets ...')
     return datasets
 
-def _train_edge_model(ctx, comm: Path, employees: Path):
+def _train_edge_model(comm: Path, employees: Path):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
@@ -99,7 +99,7 @@ def _train_edge_model(ctx, comm: Path, employees: Path):
     print(f'test prediction: {pred_val}')
 
 
-def _train_node_model(ctx, comm: Path, employees: Path, epochs: int, output_path: str = '.', model_prefix: str = ''):
+def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epochs: int, model_prefix: str = ''):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
@@ -122,12 +122,31 @@ def _train_node_model(ctx, comm: Path, employees: Path, epochs: int, output_path
     trn_acc, val_acc = model.test(gData)
     log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
 
-    # Store model
-    oPath = Path(output_path).joinpath(model_prefix+'model.pkl')
+    # save model
+    oPath = output_path.joinpath(model_prefix+'model.pkl')
     log.info(f'Saving trained model to {oPath} ...')
-    torch.save({
-        'node_model': model.state_dict(),
-    }, oPath)
+    model.save(oPath)
+
+
+def _predict_node(model_ckp: Path, comm: Path, employees: Path, output_path: Path, output_prefix: str = '', day: int = 1):
+    # Load previously saved model
+    model = NodeModel.load(model_ckp)
+
+    # Convert csv input data into torch_geometric.data.Data
+    comm_df = pd.read_csv(comm)
+    employees_df = pd.read_csv(employees)
+
+    dataset_per_day = _load_data(comm_df, employees_df)
+    raw_data = dataset_per_day[list(dataset_per_day.keys())[day]]
+
+    gData = GraphDataset(raw_data, training=False)
+
+    prediction = model.predict(gData)
+    employees_df = employees_df.assign(hasCommunicationIssues=prediction)
+    employees_df['hasCommunicationIssues'] = employees_df['hasCommunicationIssues'].astype(bool)
+    oPath = output_path.joinpath(output_prefix + 'prediction.csv')
+    log.info(f'Writing prediction to {oPath} ...')
+    employees_df.to_csv(oPath, index=False)
 
 ################################################################################
 # Auxillary functions
@@ -192,8 +211,8 @@ def node(ctx, communication, employees, epochs, output, prefix):
     _train_node_model(ctx,
         Path(communication).absolute(),
         Path(employees).absolute(),
+        Path(output).absolute(),
         epochs,
-        output_path=output,
         model_prefix=prefix)
 
 @train.command()
@@ -203,7 +222,7 @@ def node(ctx, communication, employees, epochs, output, prefix):
 def edge(ctx, communication, employees):
 
     # Commit changes
-    _train_edge_model(ctx,
+    _train_edge_model(
         Path(communication).absolute(),
         Path(employees).absolute())
 
@@ -213,17 +232,26 @@ def edge(ctx, communication, employees):
 def predict(ctx):
     pass
 
+
 @predict.command()
 @click.pass_context
+@click.argument('model_ckp', type=click.Path(exists=True))
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
-def node(ctx, communication, employees):
-    raise NotImplementedError
+@click.option('-d','--day', type=int, default=1, help='What day to use prediction')
+@click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store prediction')
+@click.option('-p','--prefix', type=str, default='', help='Prefix used when storing result')
+def node(ctx, model_ckp, communication, employees, day, output, prefix):
 
     # Commit changes
-    _predict_node(ctx,
+    _predict_node(
+        Path(model_ckp).absolute(),
         Path(communication).absolute(),
-        Path(employees).absolute())
+        Path(employees).absolute(),
+        output_path=Path(output).absolute(),
+        output_prefix=prefix,
+        day=day)
+
 
 @predict.command()
 @click.pass_context
