@@ -53,7 +53,7 @@ class Communication:
     interactions: int
     date: str
 
-def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict]:
+def generate_behavior(cfg: Dict, seed: Optional[int] = None, permutation_rate: float = 0.1) -> Tuple[Dict, Dict]:
     """
     For given configuration generate preferences and behavior for each employee
     """
@@ -79,7 +79,7 @@ def generate_behavior(cfg: Dict, seed: Optional[int] = None) -> Tuple[Dict, Dict
     # A dictionary of employee_idx per department (employeeidx starts at 1000)
     stats['departmentlist'] = {dep_name: [] for dep_name in cfg['departments'].keys()}
 
-    stats['hasCommunicationIssues'] = np.random.choice([True, False], p=[0.1, 0.9], size=total_employee_cnt)
+    stats['hasCommunicationIssues'] = np.random.choice([True, False], p=[permutation_rate, 1.0 - permutation_rate], size=total_employee_cnt)
 
     # Build a dictionary of employees, indexed by their idx
     employees = {}
@@ -206,9 +206,9 @@ def store_results(path: str, comms: List[Communication], employees: List[Employe
 
 
 
-def _generate_dataset(cfg, output_path, seed, nDays=10):
+def _generate_dataset(cfg, output_path, seed, nDays=10, permutation_rate=0.1):
     # %%
-    departmentlist, employees = generate_behavior(cfg, seed=seed)
+    departmentlist, employees = generate_behavior(cfg, seed=seed, permutation_rate=permutation_rate)
 
     # %%
     np.random.seed(seed)
@@ -226,8 +226,9 @@ def _generate_dataset(cfg, output_path, seed, nDays=10):
 @click.argument('N', type=click.INT)
 @click.argument('outputprefix', type=click.Path(exists=False))
 @click.option('--seed', default=42, help='Seed value')
+@click.option('--permutation', default=0.1, help='Ratio of permuted employees')
 @click.option('--days', default=10, help='Number of days to simulate')
-def generate(n, outputprefix, seed, days):
+def generate(n, outputprefix, seed, permutation, days):
     # %%
     cfg = {}
     # Number of nodes
@@ -253,7 +254,7 @@ def generate(n, outputprefix, seed, days):
     cfg['ratio_of_remote_employees'] = 0.3
 
     p = Path(outputprefix).absolute()
-    _generate_dataset(cfg, p, seed, nDays=days)
+    _generate_dataset(cfg, p, seed, nDays=days, permutation_rate=permutation)
     pass
 
 ################################################################################

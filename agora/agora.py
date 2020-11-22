@@ -19,7 +19,7 @@ import torch_geometric.transforms as T
 
 from pudb import set_trace as st
 
-__version__ = 0.0
+__version__ = "Alpha 0.5"
 log = None
 
 from node_model import NodeModel
@@ -121,6 +121,8 @@ def _train_node_model(ctx, comm: Path, employees: Path, epochs: int):
        
     trn_acc, val_acc = model.test(gData)
     log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
+
+    return model
 
 ################################################################################
 # Auxillary functions
