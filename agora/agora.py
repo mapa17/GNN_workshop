@@ -40,7 +40,8 @@ def _generate_employee_tensor(df: DataFrame) -> Tuple[Tensor, pd.core.arrays.cat
 
     return node_features, df['department'].cat
 
-def _generate_comm_graph(df: DataFrame, node_features: Tensor, date: str, force_undirected: bool = False) -> torch_geometric.data.data.Data:
+def _generate_comm_graph(df: DataFrame, employeesIdx: pd.Series, node_features: Tensor, date: str,
+    force_undirected: bool = False, enriched_node_features=False) -> torch_geometric.data.data.Data:
     log.debug(f"Generate graph for date {date} of shape {df.shape}")
 
     edge_index = torch.tensor([df['sender'].values, df['recver'].values], dtype=torch.long)
@@ -51,10 +52,26 @@ def _generate_comm_graph(df: DataFrame, node_features: Tensor, date: str, force_
         edge_index = torch.cat([edge_index, rev_edge_index], dim=1)
     edge_features = torch.tensor(df[['slack', 'email', 'zoom']].values, dtype=torch.float)
 
+    if enriched_node_features:
+        log.info('Enriching node features with aggregated edge features ...')
+        degree = df.groupby('sender')['recver'].nunique()
+        degree.name = 'degree'
+        channel_interactions = df.groupby('sender')[['slack', 'email', 'zoom']].sum()
+        total_intactions = channel_interactions.sum(axis=1)
+        total_intactions.name = 'total_interactions'
+        normalized_channel_interactions = channel_interactions.div(total_intactions, axis=0)
+        agg_edge_features = pd.concat([degree, total_intactions, normalized_channel_interactions], axis=1)
+        # Fill missing node entries with 0.0 values
+        agg_edge_features = pd.DataFrame(employeesIdx).join(agg_edge_features).fillna(0.0).drop(columns='idx')
+
+        # Extend the node tensor with the aggregated edge information
+        tef = torch.tensor(agg_edge_features.values, dtype=torch.float)
+        node_features = torch.cat([node_features, tef], axis=1)
+
     data = Data(x=node_features, edge_index=edge_index, edge_attr=edge_features)
     return data
 
-def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
+def _load_data(comm: DataFrame, employees: DataFrame, enriched_node_features=False) -> Dict[str, Tensor] :
     """
     Load communication and employee data, returning a separate tensor for each day
     """
@@ -75,7 +92,7 @@ def _load_data(comm: DataFrame, employees: DataFrame) -> Dict[str, Tensor] :
     # Split data by date, generating its own data/graph for every day
     datasets = {}
     for date, df in comm.groupby('date'):
-        datasets[date] = _generate_comm_graph(df, node_features, date)
+        datasets[date] = _generate_comm_graph(df, employees['idx'], node_features, date, enriched_node_features=enriched_node_features)
 
     log.info(f'Loaded {len(datasets)} datasets ...')
     return datasets
@@ -100,28 +117,28 @@ def _train_edge_model(comm: Path, employees: Path):
     print(f'test prediction: {pred_val}')
 
 
-def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epochs: int, model_prefix: str = ''):
+def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epochs: int, model_prefix: str = '', enriched_node_features=False):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
     labels = employees_df['hasCommunicationIssues'].astype(int).values
 
-    dataset_per_day = _load_data(comm_df, employees_df.drop(columns='hasCommunicationIssues'))
+    dataset_per_day = _load_data(comm_df, employees_df.drop(columns='hasCommunicationIssues'), enriched_node_features=enriched_node_features)
 
     # Only use first day
-    raw_data = dataset_per_day[list(dataset_per_day.keys())[0]]
-
-    gData = GraphDataset(raw_data, training=True, labels=labels)
+    gData = {date: GraphDataset(data, training=True, labels=labels) for date, data in dataset_per_day.items()}
+    first_date = list(gData.keys())[0]
 
     # Create a model for the Cora dataset
-    model = NodeModel(gData.num_features, nClasses=2)
+    model = NodeModel(gData[first_date].num_features, nClasses=2)
 
     for epoch in range(epochs):
-        trn_loss, val_loss = model.train_one_epoch(gData)
-        log.info(f'Epoch: {epoch:03d}, Training Loss: {trn_loss:0.3f}, Validation Loss: {val_loss:0.3f}')
-       
-    trn_acc, val_acc = model.test(gData)
-    log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
+        for date, data in gData.items():
+            trn_loss, val_loss = model.train_one_epoch(data)
+            log.info(f'Epoch: {epoch:03d}, Day: {date}, Training Loss: {trn_loss:0.3f}, Validation Loss: {val_loss:0.3f}')
+        
+    #trn_acc, val_acc = model.test(gData)
+    #log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
 
     # save model
     oPath = output_path.joinpath(model_prefix+'model.pkl')
@@ -129,7 +146,8 @@ def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epoch
     model.save(oPath)
 
 
-def _predict_node(model_ckp: Path, comm: Path, employees: Path, output_path: Path, output_prefix: str = '', day: int = 1):
+def _predict_node(model_ckp: Path, comm: Path, employees: Path, output_path: Path,
+    output_prefix: str = '', day: int = 1, enriched_node_features: bool = False):
     # Load previously saved model
     model = NodeModel.load(model_ckp)
 
@@ -137,7 +155,7 @@ def _predict_node(model_ckp: Path, comm: Path, employees: Path, output_path: Pat
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
 
-    dataset_per_day = _load_data(comm_df, employees_df)
+    dataset_per_day = _load_data(comm_df, employees_df, enriched_node_features=enriched_node_features)
     raw_data = dataset_per_day[list(dataset_per_day.keys())[day]]
 
     gData = GraphDataset(raw_data, training=False)
@@ -244,7 +262,8 @@ def train(ctx):
 @click.option('-e','--epochs', type=int, default=10, help='Number of epochs to train model')
 @click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store trained model')
 @click.option('-p','--prefix', type=str, default='', help='Prefix used when storing the pickled model')
-def node(ctx, communication, employees, epochs, output, prefix):
+@click.option('-r','--enrich', is_flag=True, default=False, help="Add aggregated edge features to node features")
+def node(ctx, communication, employees, epochs, output, prefix, enrich):
 
     # Commit changes
     _train_node_model(ctx,
@@ -252,7 +271,8 @@ def node(ctx, communication, employees, epochs, output, prefix):
         Path(employees).absolute(),
         Path(output).absolute(),
         epochs,
-        model_prefix=prefix)
+        model_prefix=prefix,
+        enriched_node_features=enrich)
 
 @train.command()
 @click.pass_context
@@ -279,7 +299,8 @@ def predict(ctx):
 @click.option('-d','--day', type=int, default=1, help='What day to use prediction')
 @click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store prediction')
 @click.option('-p','--prefix', type=str, default='', help='Prefix used when storing result')
-def node(ctx, model_ckp, communication, employees, day, output, prefix):
+@click.option('-r','--enrich', is_flag=True, default=False, help="Add aggregated edge features to node features")
+def node(ctx, model_ckp, communication, employees, day, output, prefix, enrich):
 
     # Commit changes
     _predict_node(
@@ -288,7 +309,8 @@ def node(ctx, model_ckp, communication, employees, day, output, prefix):
         Path(employees).absolute(),
         output_path=Path(output).absolute(),
         output_prefix=prefix,
-        day=day)
+        day=day,
+        enriched_node_features=enrich)
 
 @predict.command()
 @click.pass_context

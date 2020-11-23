@@ -50,7 +50,7 @@ class NodeModel(torch.nn.Module):
         prediction_log_softmax = self(data) 
 
         # Use only the nodes specified by the train_mask to compute the loss.
-        nll_loss = F.nll_loss(prediction_log_softmax[data.trn_mask], data.labels[data.trn_mask])
+        nll_loss = F.nll_loss(prediction_log_softmax[data.trn_mask], data.labels[data.trn_mask], weight=torch.tensor([1, 5], dtype=torch.float))
         
         #Computes the gradients of all model parameters used to compute the nll_loss
         #Note: These can be listed by looking at model.parameters()
