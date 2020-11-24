@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch import Tensor
 import torch.nn.functional as F
+from torch.nn import Linear
 
 import torch_geometric
 from torch_geometric.data import Data
@@ -12,6 +13,8 @@ from torch_geometric.nn import SGConv
 import torch_geometric.transforms as T
 
 from graphdataset import GraphDataset
+
+from pudb import set_trace as st
 
 class NodeModel(torch.nn.Module):
     def __init__(self, num_features, nClasses, K=1):
@@ -24,16 +27,30 @@ class NodeModel(torch.nn.Module):
         # Create a Simple convolutional layer with K neighbourhood 
         # "averaging" steps
         self.conv = SGConv(in_channels=num_features,
-                            out_channels=nClasses, 
-                           K=K, cached=True)
+                            out_channels=num_features, 
+                           K=K, cached=True, add_self_loops=False)
+        fcInputSize = num_features + num_features 
+        self.hidden_size = num_features 
+
+        self.fc1 = torch.nn.Linear(fcInputSize, self.hidden_size)
+        self.relu = torch.nn.ReLU()
+        self.fc2 = torch.nn.Linear(self.hidden_size, nClasses)
         
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.2)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         optimizer.zero_grad() 
         self.optimizer = optimizer
 
     def forward(self, data: GraphDataset):
         # Apply convolution to node features
-        x = self.conv(data.nodes, data.edges)
+        avg_neighbourhood = self.conv(data.nodes, data.edges)
+
+        # Combine local node information and aggregated neighbourhood information
+        local_and_neighbourhood = torch.cat([data.nodes, avg_neighbourhood], axis=1)
+
+        # Run it through an MLP
+        z = self.fc1(local_and_neighbourhood)
+        z = self.relu(z)
+        x = self.fc2(z)
 
         # Compute log softmax.
         # Note: Negative log likelihood loss expects a log probability
