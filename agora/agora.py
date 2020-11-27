@@ -20,18 +20,19 @@ import torch_geometric.transforms as T
 from sklearn.metrics import classification_report
 #from pudb import set_trace as st
 
+from flask import Flask, request, jsonify, after_this_request, send_file, render_template
+import json
+import os
+import tempfile
+import shutil
+
+
 __version__ = "Alpha 0.5"
 log = None
 
 from node_model import NodeModel
 from edge_model import EdgeModel
 from graphdataset import GraphDataset
-
-from flask import Flask, request, jsonify, after_this_request, send_file, render_template
-import json
-import os
-import tempfile
-import shutil
 
 ################################################################################
 # GNN code 
