@@ -255,7 +255,7 @@ def _deploy(model_path: str, enrich: bool = False):
                 shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
                 return response
 
-            return send_file(os.path.join(tmp, 'prediction.csv'), mimetype='file/text')
+            return send_file(os.path.join(tmp, 'prediction.csv'), mimetype='file/text', as_attachment=True)
         else:
             return render_template('predict.html')
 
