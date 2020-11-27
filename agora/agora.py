@@ -27,7 +27,7 @@ from node_model import NodeModel
 from edge_model import EdgeModel
 from graphdataset import GraphDataset
 
-from flask import Flask, request, jsonify,after_this_request, send_file
+from flask import Flask, request, jsonify, after_this_request, send_file, render_template
 import json
 import os
 import tempfile
@@ -215,7 +215,7 @@ def test_predictions(truelabel, predictions):
 ################################################################################
 # Flask
 ################################################################################
-def _deploy():
+def _deploy(model_path: str):
     # Name of the apps module package
     app = Flask(__name__)
     app.secret_key = 'super secret key'
@@ -229,7 +229,8 @@ def _deploy():
     # Meta data endpoint
     @app.route('/', methods=['GET'])
     def meta_data():
-        return jsonify(load_meta_data)
+        #return jsonify(load_meta_data)
+        return render_template('index.html')
 
     @app.route('/predict', methods=['GET', 'POST'])
     def upload_file():
@@ -241,12 +242,10 @@ def _deploy():
             file_com.save(os.path.join(tmp, file_com.filename))
             file_emp.save(os.path.join(tmp, file_emp.filename))
 
-            model_path = './model.pkl'
-
             _predict_node(Path(model_path),
                                 Path(os.path.join(tmp, file_com.filename)),
                                 Path(os.path.join(tmp, file_emp.filename)),
-                                output_path=Path(tmp))
+                                output_path=Path(tmp), day=0)
 
             @after_this_request
             def cleanup(response):
@@ -255,16 +254,8 @@ def _deploy():
 
             return send_file(os.path.join(tmp, 'prediction.csv'), mimetype='file/text')
         else:
-            return '''
-            <!doctype html>
-            <title>Upload new File</title>
-            <h1>Upload new File</h1>
-            <form method=post enctype=multipart/form-data>
-              <input type=file name=file_com>
-              <input type=file name=file_emp>
-              <input type=submit value=Upload>
-            </form>
-            '''
+            return render_template('predict.html')
+
     return app
 
 ################################################################################
@@ -416,18 +407,21 @@ def test(ctx):
 def node(ctx, truelabel, predictions):
     test_predictions(truelabel, predictions)
 
-@agora.group('flask')
+@agora.group('deploy')
 @click.pass_context
-def flask(ctx):
+@click.option('--port', default=5000, help='Port to serve model')
+@click.option('--debug', default=True, help='Enable flask debugging', is_flag=True)
+def deploy(ctx, port: int, debug: bool):
+    ctx.obj['port'] = port
+    ctx.obj['debug'] = debug
     pass
 
-@flask.command()
-@click.option('--port', default=5000, help='Port to serve model')
-# NEEDS TO BE CHANGE TO default=False
-@click.option('--debug', default=True, help='Enable flask debugging', is_flag=True)
-def deploy(port: int, debug: bool   ):
-    app = _deploy()
-    app.run(host='0.0.0.0', port=port, debug=debug)
+@deploy.command()
+@click.pass_context
+@click.argument('model_path', type=click.Path(exists=True))
+def flask(ctx, model_path):
+    app = _deploy(model_path)
+    app.run(host='0.0.0.0', port=ctx.obj['port'], debug=ctx.obj['debug'])
 
 
 
