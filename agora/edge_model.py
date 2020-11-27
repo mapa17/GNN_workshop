@@ -13,7 +13,7 @@ import torch_geometric.transforms as T
 from torch_geometric.utils import negative_sampling
 from torch_geometric.utils import train_test_split_edges
 from sklearn.metrics import roc_auc_score
-from pudb import set_trace as st
+#from pudb import set_trace as st
 
 class EdgeModel(torch.nn.Module):
     def __init__(self, data, zDim=4, hiddenDim=20, device='cpu'):

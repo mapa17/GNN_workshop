@@ -18,7 +18,7 @@ from torch_geometric.nn import SGConv
 import torch_geometric.transforms as T
 
 from sklearn.metrics import classification_report
-from pudb import set_trace as st
+#from pudb import set_trace as st
 
 __version__ = "Alpha 0.5"
 log = None
@@ -215,16 +215,15 @@ def test_predictions(truelabel, predictions):
 ################################################################################
 # Flask
 ################################################################################
-def _deploy(model_path: str):
+def _deploy(model_path: str, enrich: bool = False):
+    global log
+    if log is None:
+        log = getLogger(__name__, 'gunicorn.log', stdout=logging.DEBUG)
+
     # Name of the apps module package
     app = Flask(__name__)
     app.secret_key = 'super secret key'
     app.config['SESSION_TYPE'] = 'filesystem'
-
-    # Load in our meta_data
-    f = open("./meta_data.txt", "r")
-    load_meta_data = json.loads(f.read())
-
 
     # Meta data endpoint
     @app.route('/', methods=['GET'])
@@ -238,14 +237,18 @@ def _deploy(model_path: str):
             file_com = request.files['file_com']
             file_emp = request.files['file_emp']
             tmp = tempfile.mkdtemp()
-            print(f'Creating temp file in {tmp} ...')
+
+            log.debug(f'Creating temp file in {tmp} ...')
             file_com.save(os.path.join(tmp, file_com.filename))
             file_emp.save(os.path.join(tmp, file_emp.filename))
 
             _predict_node(Path(model_path),
                                 Path(os.path.join(tmp, file_com.filename)),
                                 Path(os.path.join(tmp, file_emp.filename)),
-                                output_path=Path(tmp), day=0)
+                                output_path=Path(tmp),
+                                day=0,
+                                enriched_node_features=enrich
+                                )
 
             @after_this_request
             def cleanup(response):
@@ -411,16 +414,18 @@ def node(ctx, truelabel, predictions):
 @click.pass_context
 @click.option('--port', default=5000, help='Port to serve model')
 @click.option('--debug', default=True, help='Enable flask debugging', is_flag=True)
-def deploy(ctx, port: int, debug: bool):
+@click.option('-r','--enrich', is_flag=True, default=False, help="Add aggregated edge features to node features")
+def deploy(ctx, port: int, debug: bool, enrich: bool):
     ctx.obj['port'] = port
     ctx.obj['debug'] = debug
+    ctx.obj['enrich'] = enrich
     pass
 
 @deploy.command()
 @click.pass_context
 @click.argument('model_path', type=click.Path(exists=True))
 def flask(ctx, model_path):
-    app = _deploy(model_path)
+    app = _deploy(model_path, enrich=ctx.obj['enrich'])
     app.run(host='0.0.0.0', port=ctx.obj['port'], debug=ctx.obj['debug'])
 
 

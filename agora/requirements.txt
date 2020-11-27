@@ -1,0 +1,4 @@
+# Most of the requirements are satisfied while building the docker image ...
+click
+flask
+gunicorn
