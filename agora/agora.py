@@ -27,6 +27,12 @@ from node_model import NodeModel
 from edge_model import EdgeModel
 from graphdataset import GraphDataset
 
+from flask import Flask, request, jsonify,after_this_request, send_file
+import json
+import os
+import tempfile
+import shutil
+
 ################################################################################
 # GNN code 
 ################################################################################
@@ -205,6 +211,62 @@ def test_predictions(truelabel, predictions):
         print(f'Prediction: {filename}\n\
         {classification_report(labels, prediction)}')
 
+
+################################################################################
+# Flask
+################################################################################
+def _deploy():
+    # Name of the apps module package
+    app = Flask(__name__)
+    app.secret_key = 'super secret key'
+    app.config['SESSION_TYPE'] = 'filesystem'
+
+    # Load in our meta_data
+    f = open("./meta_data.txt", "r")
+    load_meta_data = json.loads(f.read())
+
+
+    # Meta data endpoint
+    @app.route('/', methods=['GET'])
+    def meta_data():
+        return jsonify(load_meta_data)
+
+    @app.route('/predict', methods=['GET', 'POST'])
+    def upload_file():
+        if request.method == 'POST':
+            file_com = request.files['file_com']
+            file_emp = request.files['file_emp']
+            tmp = tempfile.mkdtemp()
+            print(f'Creating temp file in {tmp} ...')
+            file_com.save(os.path.join(tmp, file_com.filename))
+            file_emp.save(os.path.join(tmp, file_emp.filename))
+
+            model_path = './model.pkl'
+
+            _predict_node(Path(model_path),
+                                Path(os.path.join(tmp, file_com.filename)),
+                                Path(os.path.join(tmp, file_emp.filename)),
+                                output_path=Path(tmp))
+
+            @after_this_request
+            def cleanup(response):
+                shutil.rmtree(os.path.dirname(tmp), ignore_errors=True)
+                return response
+
+            return send_file(os.path.join(tmp, 'prediction.csv'), mimetype='file/text')
+        else:
+            return '''
+            <!doctype html>
+            <title>Upload new File</title>
+            <h1>Upload new File</h1>
+            <form method=post enctype=multipart/form-data>
+              <input type=file name=file_com>
+              <input type=file name=file_emp>
+              <input type=submit value=Upload>
+            </form>
+            '''
+    return app
+
 ################################################################################
 # Auxillary functions
 ################################################################################
@@ -353,6 +415,20 @@ def test(ctx):
 @click.argument('predictions', type=click.Path(exists=True), nargs=-1)
 def node(ctx, truelabel, predictions):
     test_predictions(truelabel, predictions)
+
+@agora.group('flask')
+@click.pass_context
+def flask(ctx):
+    pass
+
+@flask.command()
+@click.option('--port', default=5000, help='Port to serve model')
+# NEEDS TO BE CHANGE TO default=False
+@click.option('--debug', default=True, help='Enable flask debugging', is_flag=True)
+def deploy(port: int, debug: bool   ):
+    app = _deploy()
+    app.run(host='0.0.0.0', port=port, debug=debug)
+
 
 
 ################################################################################

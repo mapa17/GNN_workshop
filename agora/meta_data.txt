@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "description": "This is agora predictor",
+  "input": "The expected input to the prediction function are two csv files: communications, employees"
+}
