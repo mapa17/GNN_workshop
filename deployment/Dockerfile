@@ -42,5 +42,6 @@ RUN ["chmod", "+x", "start.sh"]
 RUN chown -R user:user .
 USER user
 
-# Start the API
+# Start the API and expose port 80
+EXPOSE 5000/tcp
 ENTRYPOINT [ "./start.sh" ]

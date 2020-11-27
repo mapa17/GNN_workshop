@@ -13,3 +13,8 @@ Run the docker image
 ```
 docker run --rm -it --name agora_inst -p 5000:5000 agora:latest
 ```
+
+Or run the docker image, exposing it locally to port 80 using
+```
+docker run --rm -it --name agora_inst -p 80:5000 agora:latest
+```
