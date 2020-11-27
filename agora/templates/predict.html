@@ -1,12 +1,53 @@
 <!doctype html>
 <html>
-    <title>Agora</title>
-    <body>
-        <h1>Upload new File</h1>
+
+<style>
+    body {
+    background-image: url('AgoraLogo.png');
+    background-repeat: no-repeat;
+    }
+</style>
+<head>
+<title>Agora</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Style the header */
+header {
+  background-color: #666;
+  padding: 30px;
+  text-align: center;
+  font-size: 35px;
+  color: white;
+}
+
+</style>
+</head>
+
+    <body style="background-color:#D3D3D3;">>
+    <header>
+        <figure>
+          <img src="AgoraLogo.png" alt="Agora">
+        </figure>
+</header>
+
+        <h2> Upload csv files and predict which employees are lonely</h2>
         <form method=post enctype=multipart/form-data>
-            <input type=file name=file_com>
-            <input type=file name=file_emp>
-            <input type=submit value=Upload>
+            <label for=file_com>Communications:</label>
+            <input type=file id=file_com name=file_com>
+            <br><br>
+            <label for=file_emp>Employees:</label>
+              <input type=file id=file_emp name=file_emp>
+            <br><br>
+              <input type=submit value=Predict>
         </form>
     </body>
 </html>
