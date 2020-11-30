@@ -6,23 +6,106 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="/static/style.css" rel="stylesheet" type="text/css" media="all">
+<link href='https://fonts.googleapis.com/css?family=Anton' rel='stylesheet'>
+
+<style>
+body {
+ background-image: url("../static/AgoraLogo.png");
+ background-color: #D3D3D3;
+background-repeat: no-repeat;
+background-position: 80% 20%;
+}
+h2 {text-align: center;}
+.predict {text-indent: 100px;
+	text-align: center;}
+.communication {font-family: 'Anton'; font-size 18px; text-align: left}
+
+.center:after {text-align: center; width = 500px}
+
+.header1 {font-family: 'Anton';font-size: 28px}
+
+.text {font-family: 'Anton'; font-size: 22px; text-align: left;}
+
+input[type=file],  input[type=reset] {
+  background-color: #333333;
+  border: none;
+  color: white;
+  padding: 16px 32px;
+  text-decoration: none;
+  margin: 4px 2px;
+  cursor: pointer;
+}
+input[type=submit] {
+  background-color: gold;
+  border: none;
+  color: white;
+  padding: 16px 32px;
+  text-decoration: none;
+  margin: 4px 2px;
+  cursor: pointer;
+  text-align: center;
+}
+
+    .column {
+    float: left;
+    width: 50%;
+    text-align: center;
+    }
+
+    .column2 {
+    float: left;
+    width: 25%;
+    text-align: center;
+    }
+
+    .row:after {
+    content: "";
+    display: table;
+    clear: both;
+    }
+
+
+</style>
+
 </head>
-    <body style="background-color:#D3D3D3;">
-    <header>
-        <figure>
-          <img src="/static/AgoraLogo.png" alt="Agora">
-        </figure>
 </header>
     <body>
-        <h2> Upload csv files and predict which employees are lonely</h2>
+        <h2 class = "header1"> Upload csv files and predict which employees are lonely</h2>
         <form method=post enctype=multipart/form-data>
-            <label for=file_com>Communications:</label>
-            <input type=file id=file_com name=file_com>
-            <br><br>
-            <label for=file_emp>Employees:</label>
-              <input type=file id=file_emp name=file_emp>
-            <br><br>
-              <input type=submit value=Predict>
+
+
+
+<div class = "row">
+	<div class = "column2">
+		<p></p>
+	</div>
+	<div class = "column2">
+		<p class = "text" style = "text-indent: 30%"> <label for=file_com> Communications:</label> </p>
+	</div>
+	<div class = "column">
+		<p class = "text"> <input type=file id=file_com name=file_com> 
+	</p>
+</div>
+<br>
+<div class = "row">
+	<div class = "column2">
+		<p></p>
+	</div>
+	<div class = "column2">
+		<p class = "text" style = "text-indent: 30%"> <label for=file_com> Employees:</label> </p>
+	</div>
+	<div class = "column" style= "text-align:left;">
+		<p class = "text"> <input type=file value="Click Here" id=file_emp > 
+	</p>
+</div>
+
+
+<br>
+
+<hr>
+<div style = "text-indent: 50%;">
+	<input type=submit value=Predict>
+</div>
         </form>
     </body>
 </html>
