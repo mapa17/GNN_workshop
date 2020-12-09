@@ -30,7 +30,8 @@ import shutil
 __version__ = "Alpha 0.5"
 log = None
 
-from node_model import NodeModel
+from model_sgconv import ModelSGConv
+from model_message import ModelMessage
 from edge_model import EdgeModel
 from graphdataset import GraphDataset
 
@@ -104,6 +105,7 @@ def _load_data(comm: DataFrame, employees: DataFrame, enriched_node_features=Fal
     log.info(f'Loaded {len(datasets)} datasets ...')
     return datasets
 
+# not called
 def _train_edge_model(comm: Path, employees: Path):
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
@@ -124,7 +126,11 @@ def _train_edge_model(comm: Path, employees: Path):
     print(f'test prediction: {pred_val}')
 
 
-def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epochs: int, model_prefix: str = '', enriched_node_features=False):
+def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path,  model_name: str, epochs: int, model_prefix: str = '', enriched_node_features=False):
+    """
+    Train GNN model
+    options for model_name: [message,sgconv]
+    """
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
     employees_df = pd.read_csv(employees)
@@ -137,16 +143,18 @@ def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epoch
     first_date = list(gData.keys())[0]
 
     # Create a model for the Cora dataset
-    model = NodeModel(gData[first_date].num_features, nClasses=2)
+    if model_name == 'message':
+        num_features_nodes = employees_df.shape[1] - 2
+        num_features_edges = comm_df.shape[1] - 2
+        model = ModelMessage(num_features_nodes, num_features_edges)
+    else:
+        model = ModelSGConv(gData[first_date].num_features, nClasses=2)
 
     for epoch in range(epochs):
         for date, data in gData.items():
             trn_loss, val_loss = model.train_one_epoch(data)
             log.info(f'Epoch: {epoch:03d}, Day: {date}, Training Loss: {trn_loss:0.3f}, Validation Loss: {val_loss:0.3f}')
         
-    #trn_acc, val_acc = model.test(gData)
-    #log.info(f'Final: Training Acc: {trn_acc:0.3f}, Validation Acc: {val_acc:0.3f}')
-
     # save model
     oPath = output_path.joinpath(model_prefix+'model.pkl')
     log.info(f'Saving trained model to {oPath} ...')
@@ -154,9 +162,12 @@ def _train_node_model(ctx, comm: Path, employees: Path, output_path: Path, epoch
 
 
 def _predict_node(model_ckp: Path, comm: Path, employees: Path, output_path: Path,
-    output_prefix: str = '', day: int = 1, enriched_node_features: bool = False):
+    output_prefix: str = '', model_name='message', day: int = 1, enriched_node_features: bool = False):
     # Load previously saved model
-    model = NodeModel.load(model_ckp)
+    if model_name == 'message':
+        model = ModelMessage.load(model_ckp)
+    else:
+        model = ModelSGConv.load(model_ckp)
 
     # Convert csv input data into torch_geometric.data.Data
     comm_df = pd.read_csv(comm)
@@ -307,97 +318,70 @@ def agora(ctx, verbose, logfile):
 # Input handlers
 ################################################################################
 
-@agora.group('train')
+# train model which predict whether the employee (node) is lonely
+@agora.group('node')
 @click.pass_context
-def train(ctx):
+def node(ctx):
     pass
 
-@train.command()
+@node.command()
 @click.pass_context
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
+@click.option('-m','--model', type=str, default='message', help='Choose the model: [message,sgconv],default:message')
 @click.option('-e','--epochs', type=int, default=10, help='Number of epochs to train model')
 @click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store trained model')
 @click.option('-p','--prefix', type=str, default='', help='Prefix used when storing the pickled model')
 @click.option('-r','--enrich', is_flag=True, default=False, help="Add aggregated edge features to node features")
-def node(ctx, communication, employees, epochs, output, prefix, enrich):
+def train(ctx, communication, employees, model, epochs, output, prefix, enrich):
 
-    # Commit changes
     _train_node_model(ctx,
         Path(communication).absolute(),
         Path(employees).absolute(),
         Path(output).absolute(),
+        model,
         epochs,
         model_prefix=prefix,
         enriched_node_features=enrich)
 
-@train.command()
-@click.pass_context
-@click.argument('communication', type=click.Path(exists=True))
-@click.argument('employees', type=click.Path(exists=True))
-def edge(ctx, communication, employees):
-
-    # Commit changes
-    _train_edge_model(
-        Path(communication).absolute(),
-        Path(employees).absolute())
-
-
-@agora.group('predict')
-@click.pass_context
-def predict(ctx):
-    pass
-
-@predict.command()
+@node.command()
 @click.pass_context
 @click.argument('model_ckp', type=click.Path(exists=True))
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
+@click.option('-m','--model', type=str, default='message', help='Choose the model: [message, sgconv],default:message')
 @click.option('-d','--day', type=int, default=1, help='What day to use prediction')
 @click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store prediction')
 @click.option('-p','--prefix', type=str, default='', help='Prefix used when storing result')
 @click.option('-r','--enrich', is_flag=True, default=False, help="Add aggregated edge features to node features")
-def node(ctx, model_ckp, communication, employees, day, output, prefix, enrich):
+def predict(ctx, model_ckp, communication, employees,  model, day, output, prefix, enrich):
 
-    # Commit changes
-    _predict_node(
-        Path(model_ckp).absolute(),
-        Path(communication).absolute(),
-        Path(employees).absolute(),
-        output_path=Path(output).absolute(),
-        output_prefix=prefix,
-        day=day,
-        enriched_node_features=enrich)
+        _predict_node(
+            Path(model_ckp).absolute(),
+            Path(communication).absolute(),
+            Path(employees).absolute(),
+            output_path=Path(output).absolute(),
+            output_prefix=prefix,
+            model_name=model,
+            day=day,
+            enriched_node_features=enrich)
 
-@predict.command()
+@node.command()
 @click.pass_context
 @click.argument('communication', type=click.Path(exists=True))
 @click.argument('employees', type=click.Path(exists=True))
 @click.option('-d','--day', type=int, default=1, help='What day to use prediction')
 @click.option('-o','--output', type=click.Path(exists=False), default='.', help='Path to store prediction')
 @click.option('-p','--prefix', type=str, default='', help='Prefix used when storing result')
-def basemodel(ctx, communication, employees, day, output, prefix):
+# predict with base model
+def predictbase(ctx, communication, employees, day, output, prefix):
 
-    # Commit changes
     _basemodel(
         Path(communication).absolute(),
         Path(employees).absolute(),
         output_path=Path(output).absolute(),
         output_prefix=prefix,
         day=day)
-
-
-@predict.command()
-@click.pass_context
-@click.argument('communication', type=click.Path(exists=True))
-@click.argument('employees', type=click.Path(exists=True))
-def edge(ctx, communication, employees):
-    raise NotImplementedError
-
-    # Commit changes
-    _predict_edge(ctx,
-        Path(communication).absolute(),
-        Path(employees).absolute())
 
 @agora.group('test')
 @click.pass_context

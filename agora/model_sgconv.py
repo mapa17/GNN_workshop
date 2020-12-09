@@ -16,7 +16,7 @@ from graphdataset import GraphDataset
 
 #from pudb import set_trace as st
 
-class NodeModel(torch.nn.Module):
+class ModelSGConv(torch.nn.Module):
     def __init__(self, num_features, nClasses, K=1):
         super().__init__()
 

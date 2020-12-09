@@ -39,6 +39,10 @@ class GraphDataset():
     @property
     def edges(self):
         return self.data.edge_index
+
+    @property
+    def edge_attributes(self):
+        return self.data.edge_attr
     
     @property
     def labels(self) -> Tensor:
